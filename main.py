@@ -15,6 +15,60 @@ from typing import List
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 from tqdm import tqdm
+"""
+Sources:
+https://spraakbanken.gu.se/parole/Docs/SUC2.0-manual.pdf
+https://www.diva-portal.org/smash/get/diva2:656074/FULLTEXT01.pdf
+https://fileadmin.cs.lth.se/cs/Education/EDA171/Reports/2007/peter.pdf
+"""
+pos_mapping = {
+    'abbrev': 'Q102786',    # abbreviation
+    'jj': 'Q34698',  # adjective # see https://fileadmin.cs.lth.se/cs/Personal/Pierre_Nugues/ilppp/slides/ch07.pdf
+    'rg': 'Q163875',  # cardinal number
+    'prefix': 'Q134830', # prefix
+    'article': 'Q103184', # article
+    'suffix': 'Q102047', # suffix
+    'hp': 'Q1050744', # relative pronoun
+    'ps': 'Q1502460', # possessive pronoun
+
+    'nn': 'Q1084',   # noun
+    'av': 'Q34698',  # adjective
+    'vb': 'Q24905',  # verb
+    'pm': 'Q147276', # proper noun
+    'ab': 'Q192420', # adverb
+    'in': 'Q198061', # interjection
+    'pp': 'Q168713', # preposition
+    'nl': 'Q13164',  # numeral
+    'pn': 'Q149667', # pronoun
+    'sn': 'Q107715', # subjunction
+    'kn': 'Q11376',  # conjunction
+    'al': 'Q7247',   # article
+    'ie': 'Q213443', # infinitive particle
+    'mxc': 'Q4115189', # multiword prefix
+    'sxc': 'Q59019669', # prefix
+    'abh': 'Q15563735', # adverb suffix
+    'avh': 'Q5307395',  # adjective suffix
+    'nnh': 'Q4961746',  # noun suffix
+    'nnm': 'Q724908',   # multiword noun
+    'nna': 'Q1077132',  # noun, abbreviation
+    'avm': 'Q729',      # multiword adjective
+    'ava': 'Q25132092', # adjective, abbreviation
+    'vbm': 'Q181714',   # multiword verb
+    'vba': 'Q4231319',  # verb, abbreviation
+    'pmm': 'Q188627',   # multiword proper noun
+    'pma': 'Q24888353', # proper noun, abbreviation
+    'abm': 'Q6734441',  # multiword adverb
+    'aba': 'Q40482579', # adverb, abbreviation
+    'pnm': 'Q10828648', # multiword pronoun
+    'inm': 'Q69556741', # multiword interjection
+    'ppm': 'Q30840955', # multiword preposition
+    'ppa': 'Q32736580', # preposition, abbreviation
+    'nlm': 'Q22069880', # multiword numeral
+    'knm': 'Q69559303', # multiword conjunction
+    'snm': 'Q69559308', # multiword subjunction
+    'kna': 'Q69559304', # conjunction, abbreviation
+    'ssm': 'Q69559307'  # multiword, clause
+}
 
 
 class Translatable(BaseModel):
@@ -53,6 +107,16 @@ class Word(BaseModel):
     inflections: List[str] = []  # Default to empty list for inflections
     synonyms: List[str] = []  # Default to empty list for synonyms
 
+    @property
+    def get_lexical_category(self):
+        if self.word_class in pos_mapping:
+            return pos_mapping[self.word_class]
+        elif not self.word_class:
+            # we ignore this for now
+            pass
+        else:
+            raise ValueError("No matching QID found for word class: {}".format(self.word_class))
+
     @classmethod
     def from_soup(cls, soup):
         # Extracting attributes from BeautifulSoup object
@@ -89,6 +153,7 @@ class Word(BaseModel):
         """This is used in Wikidata to separate sylables"""
         return self.value.replace("|", "·")
 
+
 class WordsContainer(BaseModel):
     words: List[Word]
 
@@ -121,17 +186,21 @@ class WordsContainer(BaseModel):
             writer = csv.writer(file)
             # Write header row for words
             writer.writerow(
-                ['Type', 'Value', 'Value with middle dots', 'Comment', 'Word Class', 'Language', 'Saldo ID', 'Definition', 'Examples', 'Idioms',
-                 'Inflections', 'Synonyms'])
+                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                 'Definition', 'Examples', 'Idioms',
+                 'Inflections', 'Synonyms', 'Comment'])
             # Write rows for each word
             for word in self.words:
                 examples_joined = "|".join([example.value for example in word.examples])
                 idioms_joined = "|".join([idiom.value for idiom in word.idioms])
                 inflections_joined = "|".join([inflection for inflection in word.inflections])
                 synonyms_joined = "|".join([synonym for synonym in word.synonyms])
+                lexical_category = word.get_lexical_category
                 writer.writerow(
-                    ['Word', word.word_without_vertical_line, word.word_with_middle_dots, word.comment, word.word_class, word.lang, word.saldo_id,
-                     word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined])
+                    ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                     word.word_class, word.lang, word.saldo_id,
+                     word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
+                     word.comment])
 
     def idioms_to_csv(self, file_path: str = "idioms.csv"):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
@@ -152,6 +221,7 @@ class WordsContainer(BaseModel):
             for word in self.words:
                 for example in word.examples:
                     writer.writerow(['Example', example.value, example.word_value])
+
     def count_words(self):
         return len(self.words)
 
