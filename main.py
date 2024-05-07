@@ -10,9 +10,10 @@
 # lets use beautifulsoup and pydantic to extract what we want
 import csv
 import html
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List
+
 from bs4 import BeautifulSoup
+from pydantic import BaseModel
 from tqdm import tqdm
 
 
@@ -44,11 +45,13 @@ class Word(BaseModel):
     comment: str
     word_class: str
     lang: str
-    value: str
+    value: str # these are hyphenated by '|'
     saldo_id: str
-    examples: List[Example] = []  # Default to empty list for idioms
+    examples: List[Example] = []  # Default to empty list for examples
     definition: str
     idioms: List[Idiom] = []  # Default to empty list for idioms
+    inflections: List[str] = []  # Default to empty list for inflections
+    synonyms: List[str] = []  # Default to empty list for synonyms
 
     @classmethod
     def from_soup(cls, soup):
@@ -62,6 +65,8 @@ class Word(BaseModel):
         examples = [Example.from_soup(example, value) for example in soup.find_all("example")]
         definition = soup.definition.get("value", "") if soup.definition else ""
         idioms = [Idiom.from_soup(idiom, value) for idiom in soup.find_all("idiom")]
+        inflections = [inflection.get("value", "") for inflection in soup.find_all("inflection")]
+        synonyms = [synonym.get("value", "") for synonym in soup.find_all("synonym")]
         return cls(
             comment=comment,
             word_class=word_class,
@@ -70,9 +75,19 @@ class Word(BaseModel):
             saldo_id=saldo_id,
             examples=examples,
             definition=definition,
-            idioms=idioms
+            idioms=idioms,
+            inflections=inflections,
+            synonyms=synonyms
         )
 
+    @property
+    def word_without_vertical_line(self):
+        return self.value.replace("|", "")
+
+    @property
+    def word_with_middle_dots(self):
+        """This is used in Wikidata to separate sylables"""
+        return self.value.replace("|", "·")
 
 class WordsContainer(BaseModel):
     words: List[Word]
@@ -101,18 +116,22 @@ class WordsContainer(BaseModel):
             pbar.update(total_lines)  # Update progress bar to completion
         return words_container
 
-
     def words_to_csv(self, file_path: str = "words.csv"):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             # Write header row for words
             writer.writerow(
-                ['Type', 'Value', 'Comment', 'Word Class', 'Language', 'Saldo ID', 'Definition'])
+                ['Type', 'Value', 'Value with middle dots', 'Comment', 'Word Class', 'Language', 'Saldo ID', 'Definition', 'Examples', 'Idioms',
+                 'Inflections', 'Synonyms'])
             # Write rows for each word
             for word in self.words:
+                examples_joined = "|".join([example.value for example in word.examples])
+                idioms_joined = "|".join([idiom.value for idiom in word.idioms])
+                inflections_joined = "|".join([inflection for inflection in word.inflections])
+                synonyms_joined = "|".join([synonym for synonym in word.synonyms])
                 writer.writerow(
-                    ['Word', word.value, word.comment, word.word_class, word.lang, word.saldo_id,
-                     word.definition])
+                    ['Word', word.word_without_vertical_line, word.word_with_middle_dots, word.comment, word.word_class, word.lang, word.saldo_id,
+                     word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined])
 
     def idioms_to_csv(self, file_path: str = "idioms.csv"):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
