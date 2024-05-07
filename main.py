@@ -202,6 +202,52 @@ class WordsContainer(BaseModel):
                      word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
                      word.comment])
 
+    def words_without_category_to_csv(self, file_path: str = "words_without_category.csv"):
+        """There are about 7000 of these"""
+        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            # Write header row for words
+            writer.writerow(
+                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                 'Definition', 'Examples', 'Idioms',
+                 'Inflections', 'Synonyms', 'Comment'])
+            # Write rows for each word
+            for word in self.words:
+                if word.word_class == "":
+                    examples_joined = "|".join([example.value for example in word.examples])
+                    idioms_joined = "|".join([idiom.value for idiom in word.idioms])
+                    inflections_joined = "|".join([inflection for inflection in word.inflections])
+                    synonyms_joined = "|".join([synonym for synonym in word.synonyms])
+                    lexical_category = word.get_lexical_category
+                    writer.writerow(
+                        ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                         word.word_class, word.lang, word.saldo_id,
+                         word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
+                         word.comment])
+
+    def words_with_category_to_csv(self, file_path: str = "words_with_category.csv"):
+        """There are about 7000 of these"""
+        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            # Write header row for words
+            writer.writerow(
+                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                 'Definition', 'Examples', 'Idioms',
+                 'Inflections', 'Synonyms', 'Comment'])
+            # Write rows for each word
+            for word in self.words:
+                if word.word_class != "":
+                    examples_joined = "|".join([example.value for example in word.examples])
+                    idioms_joined = "|".join([idiom.value for idiom in word.idioms])
+                    inflections_joined = "|".join([inflection for inflection in word.inflections])
+                    synonyms_joined = "|".join([synonym for synonym in word.synonyms])
+                    lexical_category = word.get_lexical_category
+                    writer.writerow(
+                        ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                         word.word_class, word.lang, word.saldo_id,
+                         word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
+                         word.comment])
+
     def idioms_to_csv(self, file_path: str = "idioms.csv"):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
@@ -237,11 +283,17 @@ class WordsContainer(BaseModel):
         count = sum(1 for word in self.words if word.word_class == "")
         return count
 
+    def output_all_csvs(self):
+        self.words_to_csv()
+        self.idioms_to_csv()
+        self.examples_to_csv()
+        self.words_without_category_to_csv()
+        self.words_with_category_to_csv()
+
 
 wc = WordsContainer.from_file("folkets_sv_en_public.xml")
-wc.words_to_csv()
-wc.idioms_to_csv()
-wc.examples_to_csv()
+wc.output_all_csvs()
+
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
 examples = wc.count_examples()
@@ -249,5 +301,6 @@ count_words_without_lexical_category = wc.count_words_without_lexical_category()
 
 print("Number of words:", words_count)
 print("Number of words missing a lexical category:", count_words_without_lexical_category)
+print("Number of words with a lexical category:", words_count - count_words_without_lexical_category)
 print("Number of idioms:", idioms_count)
 print("Number of examples:", examples)
