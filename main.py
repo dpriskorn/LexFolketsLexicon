@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 class Translatable(BaseModel):
     value: str
-    word_value: str # where this was found
+    word_value: str  # where this was found
     translation: str = ""  # Default to empty string for translation
 
     @classmethod
