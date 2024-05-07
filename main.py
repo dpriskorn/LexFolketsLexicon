@@ -233,6 +233,11 @@ class WordsContainer(BaseModel):
         count = sum(len(word.examples) for word in self.words)
         return count
 
+    def count_words_without_lexical_category(self):
+        count = sum(1 for word in self.words if word.word_class == "")
+        return count
+
+
 wc = WordsContainer.from_file("folkets_sv_en_public.xml")
 wc.words_to_csv()
 wc.idioms_to_csv()
@@ -240,7 +245,9 @@ wc.examples_to_csv()
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
 examples = wc.count_examples()
+count_words_without_lexical_category = wc.count_words_without_lexical_category()
 
 print("Number of words:", words_count)
+print("Number of words missing a lexical category:", count_words_without_lexical_category)
 print("Number of idioms:", idioms_count)
 print("Number of examples:", examples)
