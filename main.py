@@ -35,8 +35,10 @@ class Translatable(BaseModel):
 class Idiom(Translatable):
     pass
 
+
 class Example(Translatable):
     pass
+
 
 class Word(BaseModel):
     comment: str
