@@ -25,10 +25,10 @@ class Translatable(BaseModel):
     def from_soup(cls, soup, word_value):
         value = soup.get("value", "")
         # Decode HTML entities
-        value = html.unescape(value)
+        value = value.replace('&quot;', '')
         translation = soup.translation.get("value", "") if soup.translation else ""
         # Decode HTML entities
-        translation = html.unescape(translation)
+        translation = html.unescape(translation).replace('""', '"')
         return cls(value=value, word_value=word_value, translation=translation)
 
 
