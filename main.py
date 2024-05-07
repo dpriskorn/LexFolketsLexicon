@@ -95,6 +95,11 @@ class Example(Translatable):
     pass
 
 
+class Phonetic(BaseModel):
+    ipa: str
+    sound_file: str
+
+
 class Word(BaseModel):
     comment: str
     word_class: str
@@ -131,6 +136,9 @@ class Word(BaseModel):
         idioms = [Idiom.from_soup(idiom, value) for idiom in soup.find_all("idiom")]
         inflections = [inflection.get("value", "") for inflection in soup.find_all("inflection")]
         synonyms = [synonym.get("value", "") for synonym in soup.find_all("synonym")]
+        phonetic_tag = soup.find("phonetic")
+        phonetic = Phonetic(ipa=phonetic_tag.get("value", ""),
+                            sound_file=phonetic_tag.get("soundFile", "")) if phonetic_tag else ""
         return cls(
             comment=comment,
             word_class=word_class,
@@ -141,7 +149,8 @@ class Word(BaseModel):
             definition=definition,
             idioms=idioms,
             inflections=inflections,
-            synonyms=synonyms
+            synonyms=synonyms,
+            phonetic=phonetic
         )
 
     @property
