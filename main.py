@@ -8,13 +8,18 @@
 # <definition value="till ett pris av"><translation value="at a price of" />
 # </definition>
 # lets use beautifulsoup and pydantic to extract what we want
-import csv
 import html
+import json
+import uuid
 from typing import List
 
 from bs4 import BeautifulSoup
+from jsonlines import jsonlines
 from pydantic import BaseModel
 from tqdm import tqdm
+
+import csv
+
 """
 Sources:
 https://spraakbanken.gu.se/parole/Docs/SUC2.0-manual.pdf
@@ -101,11 +106,12 @@ class Phonetic(BaseModel):
 
 
 class Word(BaseModel):
+    id_: str
     comment: str
     word_class: str
     lang: str
     value: str # these are hyphenated by '|'
-    saldo_id: str
+    saldo_ids: List[str] = []  # Changed to List[str] to store multiple saldo_ids
     examples: List[Example] = []  # Default to empty list for examples
     definition: str
     idioms: List[Idiom] = []  # Default to empty list for idioms
@@ -130,7 +136,7 @@ class Word(BaseModel):
         word_class = soup.get("class", "")
         lang = soup.get("lang", "")
         value = soup.get("value", "")
-        saldo_id = soup.see.get("value", "") if soup.see else ""
+        saldo_ids = [see.get("value", "") for see in soup.find_all("see")]
         examples = [Example.from_soup(example, value) for example in soup.find_all("example")]
         definition = soup.definition.get("value", "") if soup.definition else ""
         idioms = [Idiom.from_soup(idiom, value) for idiom in soup.find_all("idiom")]
@@ -140,11 +146,13 @@ class Word(BaseModel):
         phonetic = Phonetic(ipa=phonetic_tag.get("value", ""),
                             sound_file=phonetic_tag.get("soundFile", "")) if phonetic_tag else ""
         return cls(
+            # Generate random 6 char id
+            id_=str(uuid.uuid4())[:6],
             comment=comment,
             word_class=word_class,
             lang=lang,
             value=value,
-            saldo_id=saldo_id,
+            saldo_ids=saldo_ids,
             examples=examples,
             definition=definition,
             idioms=idioms,
@@ -195,7 +203,7 @@ class WordsContainer(BaseModel):
             writer = csv.writer(file)
             # Write header row for words
             writer.writerow(
-                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
                  'Definition', 'Examples', 'Idioms',
                  'Inflections', 'Synonyms', 'Comment'])
             # Write rows for each word
@@ -206,8 +214,8 @@ class WordsContainer(BaseModel):
                 synonyms_joined = "|".join([synonym for synonym in word.synonyms])
                 lexical_category = word.get_lexical_category
                 writer.writerow(
-                    ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                     word.word_class, word.lang, word.saldo_id,
+                    [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                     word.word_class, word.lang,
                      word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
                      word.comment])
 
@@ -217,7 +225,7 @@ class WordsContainer(BaseModel):
             writer = csv.writer(file)
             # Write header row for words
             writer.writerow(
-                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
                  'Definition', 'Examples', 'Idioms',
                  'Inflections', 'Synonyms', 'Comment'])
             # Write rows for each word
@@ -229,8 +237,8 @@ class WordsContainer(BaseModel):
                     synonyms_joined = "|".join([synonym for synonym in word.synonyms])
                     lexical_category = word.get_lexical_category
                     writer.writerow(
-                        ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                         word.word_class, word.lang, word.saldo_id,
+                        [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                         word.word_class, word.lang,
                          word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
                          word.comment])
 
@@ -240,7 +248,7 @@ class WordsContainer(BaseModel):
             writer = csv.writer(file)
             # Write header row for words
             writer.writerow(
-                ['Type', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
+                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
                  'Definition', 'Examples', 'Idioms',
                  'Inflections', 'Synonyms', 'Comment'])
             # Write rows for each word
@@ -252,8 +260,8 @@ class WordsContainer(BaseModel):
                     synonyms_joined = "|".join([synonym for synonym in word.synonyms])
                     lexical_category = word.get_lexical_category
                     writer.writerow(
-                        ['Word', word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                         word.word_class, word.lang, word.saldo_id,
+                        [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
+                         word.word_class, word.lang,
                          word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
                          word.comment])
 
@@ -261,21 +269,21 @@ class WordsContainer(BaseModel):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             # Write header row for idioms
-            writer.writerow(['Type', 'Value', 'Word Value'])
+            writer.writerow(['ID', 'Word Value', 'Idiom'])
             # Write rows for each idiom
             for word in self.words:
                 for idiom in word.idioms:
-                    writer.writerow(['Idiom', idiom.value, idiom.word_value])
+                    writer.writerow([word.id_, idiom.word_value, idiom.value])
 
     def examples_to_csv(self, file_path: str = "examples.csv"):
         with open(file_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             # Write header row for idioms
-            writer.writerow(['Type', 'Value', 'Word Value'])
+            writer.writerow(['ID', 'Word Value', 'Example'])
             # Write rows for each idiom
             for word in self.words:
                 for example in word.examples:
-                    writer.writerow(['Example', example.value, example.word_value])
+                    writer.writerow([word.id_, example.word_value, example.value])
 
     def count_words(self):
         return len(self.words)
@@ -292,16 +300,21 @@ class WordsContainer(BaseModel):
         count = sum(1 for word in self.words if word.word_class == "")
         return count
 
-    def output_all_csvs(self):
-        self.words_to_csv()
-        self.idioms_to_csv()
-        self.examples_to_csv()
-        self.words_without_category_to_csv()
-        self.words_with_category_to_csv()
+    # def output_all_csvs(self):
+    #     self.words_to_csv()
+    #     self.idioms_to_csv()
+    #     self.examples_to_csv()
+    #     self.words_without_category_to_csv()
+    #     self.words_with_category_to_csv()
 
+    def output_to_jsonl(self, file_path: str = "folkets_lexicon.jsonl"):
+        with jsonlines.open(file_path, mode='w') as writer:
+            for word in self.words:
+                writer.write(word.dict())
 
-wc = WordsContainer.from_file("folkets_sv_en_public.xml")
-wc.output_all_csvs()
+wc = WordsContainer.from_file("data/folkets_sv_en_public.xml")
+# wc.output_all_csvs()
+wc.output_to_jsonl()
 
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
