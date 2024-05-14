@@ -1,24 +1,15 @@
-# pseudo code
-# the data is in a big XML file
-# <word class="pp" comment="endast vid sifferuttryck" lang="sv" value="à"><translation comment="used only with numerical expressions" value="at" />
-# <phonetic soundFile="à.swf" value="a" />
-# <see type="saldo" value="à||à..1||à..pp.1" />
-# <example value="två koppar kaffe à 8 kronor (styck)"><translation value="two cups of coffee at 8 kronor (each)" />
-# </example>
-# <definition value="till ett pris av"><translation value="at a price of" />
-# </definition>
-# lets use beautifulsoup and pydantic to extract what we want
 import html
 import json
+import os
+import shutil
 import uuid
+from pprint import pprint
 from typing import List
 
 from bs4 import BeautifulSoup
 from jsonlines import jsonlines
 from pydantic import BaseModel
 from tqdm import tqdm
-
-import csv
 
 """
 Sources:
@@ -78,18 +69,17 @@ pos_mapping = {
 
 class Translatable(BaseModel):
     value: str
-    word_value: str  # where this was found
     translation: str = ""  # Default to empty string for translation
 
     @classmethod
-    def from_soup(cls, soup, word_value):
+    def from_soup(cls, soup):
         value = soup.get("value", "")
         # Decode HTML entities
         value = value.replace('&quot;', '')
         translation = soup.translation.get("value", "") if soup.translation else ""
         # Decode HTML entities
         translation = html.unescape(translation).replace('""', '"')
-        return cls(value=value, word_value=word_value, translation=translation)
+        return cls(value=value, translation=translation)
 
 
 class Idiom(Translatable):
@@ -104,6 +94,12 @@ class Phonetic(BaseModel):
     ipa: str
     sound_file: str
 
+    @property
+    def mp3_file_url(self):
+        """This links to the static mp3 file at Lexin"""
+        return (f"http://lexin.nada.kth.se/sound/"
+                f"{self.sound_file.replace('swf', 'mp3')}")
+
 
 class Word(BaseModel):
     id_: str
@@ -117,9 +113,10 @@ class Word(BaseModel):
     idioms: List[Idiom] = []  # Default to empty list for idioms
     inflections: List[str] = []  # Default to empty list for inflections
     synonyms: List[str] = []  # Default to empty list for synonyms
+    phonetic: Phonetic|None = None
 
     @property
-    def get_lexical_category(self):
+    def get_lexical_category(self) -> str:
         if self.word_class in pos_mapping:
             return pos_mapping[self.word_class]
         elif not self.word_class:
@@ -137,14 +134,17 @@ class Word(BaseModel):
         lang = soup.get("lang", "")
         value = soup.get("value", "")
         saldo_ids = [see.get("value", "") for see in soup.find_all("see")]
-        examples = [Example.from_soup(example, value) for example in soup.find_all("example")]
+        examples = [Example.from_soup(example) for example in soup.find_all("example")]
         definition = soup.definition.get("value", "") if soup.definition else ""
-        idioms = [Idiom.from_soup(idiom, value) for idiom in soup.find_all("idiom")]
+        idioms = [Idiom.from_soup(idiom) for idiom in soup.find_all("idiom")]
         inflections = [inflection.get("value", "") for inflection in soup.find_all("inflection")]
         synonyms = [synonym.get("value", "") for synonym in soup.find_all("synonym")]
         phonetic_tag = soup.find("phonetic")
-        phonetic = Phonetic(ipa=phonetic_tag.get("value", ""),
-                            sound_file=phonetic_tag.get("soundFile", "")) if phonetic_tag else ""
+        if phonetic_tag:
+            phonetic = Phonetic(ipa=phonetic_tag.get("value", "") if phonetic_tag else "",
+                                sound_file=phonetic_tag.get("soundFile", "")) if phonetic_tag else ""
+        else:
+            phonetic = None
         return cls(
             # Generate random 6 char id
             id_=str(uuid.uuid4())[:6],
@@ -169,6 +169,20 @@ class Word(BaseModel):
     def word_with_middle_dots(self):
         """This is used in Wikidata to separate sylables"""
         return self.value.replace("|", "·")
+
+    @property
+    def get_output_dict(self):
+        """Populate the dict with content that makes sense for Wikidata"""
+        dictionary = self.dict()
+        if self.phonetic is not None and self.phonetic.sound_file:
+            dictionary["phonetic"]["mp3"] = self.phonetic.mp3_file_url
+        dictionary["lexical_category_qid"] = self.get_lexical_category
+        dictionary["word_with_middle_dots"] = self.word_with_middle_dots
+        dictionary["word_without_vertical_line"] = self.word_without_vertical_line
+        # if self.value == "driva" and self.get_lexical_category == "Q24905":
+        #     pprint(dictionary)
+        #     exit()
+        return dictionary
 
 
 class WordsContainer(BaseModel):
@@ -198,93 +212,6 @@ class WordsContainer(BaseModel):
             pbar.update(total_lines)  # Update progress bar to completion
         return words_container
 
-    def words_to_csv(self, file_path: str = "words.csv"):
-        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Write header row for words
-            writer.writerow(
-                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
-                 'Definition', 'Examples', 'Idioms',
-                 'Inflections', 'Synonyms', 'Comment'])
-            # Write rows for each word
-            for word in self.words:
-                examples_joined = "|".join([example.value for example in word.examples])
-                idioms_joined = "|".join([idiom.value for idiom in word.idioms])
-                inflections_joined = "|".join([inflection for inflection in word.inflections])
-                synonyms_joined = "|".join([synonym for synonym in word.synonyms])
-                lexical_category = word.get_lexical_category
-                writer.writerow(
-                    [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                     word.word_class, word.lang,
-                     word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
-                     word.comment])
-
-    def words_without_category_to_csv(self, file_path: str = "words_without_category.csv"):
-        """There are about 7000 of these"""
-        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Write header row for words
-            writer.writerow(
-                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
-                 'Definition', 'Examples', 'Idioms',
-                 'Inflections', 'Synonyms', 'Comment'])
-            # Write rows for each word
-            for word in self.words:
-                if word.word_class == "":
-                    examples_joined = "|".join([example.value for example in word.examples])
-                    idioms_joined = "|".join([idiom.value for idiom in word.idioms])
-                    inflections_joined = "|".join([inflection for inflection in word.inflections])
-                    synonyms_joined = "|".join([synonym for synonym in word.synonyms])
-                    lexical_category = word.get_lexical_category
-                    writer.writerow(
-                        [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                         word.word_class, word.lang,
-                         word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
-                         word.comment])
-
-    def words_with_category_to_csv(self, file_path: str = "words_with_category.csv"):
-        """There are about 7000 of these"""
-        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Write header row for words
-            writer.writerow(
-                ['ID', 'Value', 'Value with middle dots', 'Lexical Category', 'Word Class', 'Language', 'Saldo ID',
-                 'Definition', 'Examples', 'Idioms',
-                 'Inflections', 'Synonyms', 'Comment'])
-            # Write rows for each word
-            for word in self.words:
-                if word.word_class != "":
-                    examples_joined = "|".join([example.value for example in word.examples])
-                    idioms_joined = "|".join([idiom.value for idiom in word.idioms])
-                    inflections_joined = "|".join([inflection for inflection in word.inflections])
-                    synonyms_joined = "|".join([synonym for synonym in word.synonyms])
-                    lexical_category = word.get_lexical_category
-                    writer.writerow(
-                        [word.id_, word.word_without_vertical_line, word.word_with_middle_dots, lexical_category,
-                         word.word_class, word.lang,
-                         word.definition, examples_joined, idioms_joined, inflections_joined, synonyms_joined,
-                         word.comment])
-
-    def idioms_to_csv(self, file_path: str = "idioms.csv"):
-        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Write header row for idioms
-            writer.writerow(['ID', 'Word Value', 'Idiom'])
-            # Write rows for each idiom
-            for word in self.words:
-                for idiom in word.idioms:
-                    writer.writerow([word.id_, idiom.word_value, idiom.value])
-
-    def examples_to_csv(self, file_path: str = "examples.csv"):
-        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Write header row for idioms
-            writer.writerow(['ID', 'Word Value', 'Example'])
-            # Write rows for each idiom
-            for word in self.words:
-                for example in word.examples:
-                    writer.writerow([word.id_, example.word_value, example.value])
-
     def count_words(self):
         return len(self.words)
 
@@ -296,33 +223,52 @@ class WordsContainer(BaseModel):
         count = sum(len(word.examples) for word in self.words)
         return count
 
+    def count_words_with_lexical_category_and_sound_file(self):
+        count = sum(1 for word in self.words if word.word_class != "" and word.phonetic and word.phonetic.sound_file != "")
+        return count
+
+    @property
+    def count_words_with_sound_file(self):
+        count = sum(1 for word in self.words if word.phonetic and word.phonetic.sound_file != "")
+        return count
+
     def count_words_without_lexical_category(self):
         count = sum(1 for word in self.words if word.word_class == "")
         return count
 
-    # def output_all_csvs(self):
-    #     self.words_to_csv()
-    #     self.idioms_to_csv()
-    #     self.examples_to_csv()
-    #     self.words_without_category_to_csv()
-    #     self.words_with_category_to_csv()
-
-    def output_to_jsonl(self, file_path: str = "folkets_lexicon.jsonl"):
+    def output_to_jsonl(self, file_path: str = "data/folkets_lexicon_v2.jsonl"):
         with jsonlines.open(file_path, mode='w') as writer:
             for word in self.words:
-                writer.write(word.dict())
+                writer.write(word.get_output_dict)
+
+    def output_to_individual_json_files(self, directory_path: str = "data/v2"):
+        # Remove existing directory if it exists
+        shutil.rmtree(directory_path, ignore_errors=True)
+        # Create the directory if it doesn't exist
+        os.makedirs(directory_path, exist_ok=False)
+
+        # Iterate over each Word and write it to a separate JSON file
+        for word in self.words:
+            file_path = os.path.join(directory_path, f"{word.id_}.json")
+            with open(file_path, mode='w', encoding='utf-8') as file:
+                json.dump(word.get_output_dict, file, ensure_ascii=False, indent=4)
+
+
 
 wc = WordsContainer.from_file("data/folkets_sv_en_public.xml")
-# wc.output_all_csvs()
 wc.output_to_jsonl()
+wc.output_to_individual_json_files()
 
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
 examples = wc.count_examples()
 count_words_without_lexical_category = wc.count_words_without_lexical_category()
+count_words_with_lexical_category_and_sound_file = wc.count_words_with_lexical_category_and_sound_file()
 
 print("Number of words:", words_count)
+print("Number of words with sound file:", wc.count_words_with_sound_file)
 print("Number of words missing a lexical category:", count_words_without_lexical_category)
 print("Number of words with a lexical category:", words_count - count_words_without_lexical_category)
+print("Number of words with a lexical category and sound file:", count_words_with_lexical_category_and_sound_file)
 print("Number of idioms:", idioms_count)
 print("Number of examples:", examples)
