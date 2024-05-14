@@ -257,7 +257,7 @@ class WordsContainer(BaseModel):
 
 wc = WordsContainer.from_file("data/folkets_sv_en_public.xml")
 wc.output_to_jsonl()
-wc.output_to_individual_json_files()
+#wc.output_to_individual_json_files()
 
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
