@@ -8,7 +8,11 @@ from starlette.responses import RedirectResponse
 app = FastAPI()
 
 @app.get("/", include_in_schema=False)
-async def redirect_to_docs():
+def redirect_to_docs():
+    return RedirectResponse(url="/docs")
+
+@app.get("/v2/", include_in_schema=False)
+def redirect_to_docs():
     return RedirectResponse(url="/docs")
 
 @app.get("/v2/{id_}")
