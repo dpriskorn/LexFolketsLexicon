@@ -31,3 +31,16 @@ The data directory files are CC-BY-SA 2.5
 Original source is http://folkets-lexikon.csc.kth.se/folkets/
 The data was downloaded during may 2023.
 No updates to the dump seem to happen over time since the project is not maintained anymore.
+
+## Development
+Run the api:
+`$ uvicorn api:app --reload`
+
+Build pack:
+
+Make sure pack-cli-bin and docker is installed from AUR:
+```
+$ pack build --builder tools-harbor.wmcloud.org/toolforge/heroku-builder:22 myimage
+$ docker run -e PORT=8000 -p 8000:8000 --rm --entrypoint web myimage
+# navigate to http://127.0.0.1:8000 to check that it works
+```
