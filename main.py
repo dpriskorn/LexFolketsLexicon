@@ -3,13 +3,11 @@ import json
 import os
 import shutil
 import uuid
-from pprint import pprint
 from typing import List
 
 from bs4 import BeautifulSoup
 from jsonlines import jsonlines
 from pydantic import BaseModel
-from tqdm import tqdm
 
 """
 Sources:
@@ -205,11 +203,8 @@ class WordsContainer(BaseModel):
             xml_content = file.read()
         # Get the total number of lines in the file
         total_lines = sum(1 for line in open(file_path))
-        # Create a progress bar
-        with tqdm(total=total_lines, desc="Reading file") as pbar:
-            # Create WordsContainer object from XML content
-            words_container = cls.from_xml(xml_content)
-            pbar.update(total_lines)  # Update progress bar to completion
+        # Create WordsContainer object from XML content
+        words_container = cls.from_xml(xml_content)
         return words_container
 
     def count_words(self):
