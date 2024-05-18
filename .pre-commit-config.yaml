@@ -1,0 +1,49 @@
+repos:
+- repo: local
+  hooks:
+  - id: dead
+    name: dead
+    entry: dead
+    args:
+      - "--exclude"
+      - "test_data/test_content.py|^deprecated/" # regex separate by "|"
+    language: system
+    pass_filenames: false
+
+  - id: black
+    name: black
+    language: system
+    entry: black
+    # args: ["--check"]
+    types: [python]
+    exclude: ^deprecated/
+
+  - id: ruff
+    name: ruff
+    language: system
+    entry: ruff
+    args:
+      - "--fix"
+    types: [python]
+    exclude: "^deprecated/"
+
+# disabled because of false positive spelling warnings
+#  - id: codespell
+#    name: codespell
+#    language: system
+#    entry: codespell
+#    types: [ python ]
+#    exclude: "^deprecated/|pyperclip.py"
+
+# disabled because it takes to long :/
+#  - id: pytest
+#    name: pytest
+#    language: system
+#    entry: pytest
+#    args:
+#      #- "-m slow"
+#      - "--durations=10" # show the 10 slowest tests
+##      - "--ignore=tests/test_wcdimportbot.py"
+#    types: [ python ]
+#    files: tests/
+#    # exclude: ^deprecated/|^delete-|-csn-
