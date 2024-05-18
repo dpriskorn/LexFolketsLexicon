@@ -1,0 +1,1 @@
+poetry update && pip freeze > requirements.txt
