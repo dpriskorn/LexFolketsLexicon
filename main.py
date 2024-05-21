@@ -1,13 +1,16 @@
+import asyncio
 import html
-import json
-import os
-import shutil
 import uuid
 from typing import List
 
+import aiohttp
 from bs4 import BeautifulSoup
 from jsonlines import jsonlines
 from pydantic import BaseModel
+from tqdm.asyncio import tqdm_asyncio
+from urllib.parse import quote
+
+# from generate_json_files import LexiconProcessor
 
 """
 Sources:
@@ -95,16 +98,41 @@ class Example(Translatable):
 
 
 class Phonetic(BaseModel):
-    ipa: str
-    sound_file: str
+    ipa: str = ""
+    sound_file: str = ""
+    mp3_file_found: bool = False
 
     @property
     def mp3_file_url(self):
         """This links to the static mp3 file at Lexin"""
-        return (
-            f"http://lexin.nada.kth.se/sound/"
-            f"{self.sound_file.replace('swf', 'mp3')}"
-        )
+        if self.sound_file:
+            if ".mp3" in self.sound_file:
+                return self.sound_file
+            elif ".swf" in self.sound_file:
+                    return (
+                        f"http://lexin.nada.kth.se/sound/"
+                        f"{quote(self.sound_file
+                                 .replace('swf', 'mp3')
+                                 .replace('ä', '0344')
+                                 .replace('ö', '0366')
+                                 .replace('å', '0345')
+                                 .replace('é', '0351')
+                                 )}"
+                    )
+            else:
+                raise ValueError(f"neither swf or mp3 in sound_file: {self.sound_file}")
+
+    async def check_mp3_file(self, session):
+        """Check if the mp3 file exists at the URL and set mp3_file_found attribute."""
+        if self.mp3_file_url:
+            url = self.mp3_file_url
+            async with session.head(url) as response:
+                if response.status == 200:
+                    self.mp3_file_found = True
+                elif response.status == 404:
+                    self.mp3_file_found = False
+                else:
+                    raise Exception(f"Unexpected response code: {response.status} for URL: {url}")
 
 
 class Word(BaseModel):
@@ -258,48 +286,70 @@ class WordsContainer(BaseModel):
         count = sum(1 for word in self.words if word.word_class == "")
         return count
 
+    def count_mp3_file(self):
+        count = sum(1 for word in self.words if word.phonetic and word.phonetic.mp3_file_url)
+        return count
+
+    def count_mp3_file_found(self):
+        count = sum(1 for word in self.words if word.phonetic and word.phonetic.mp3_file_found is True)
+        return count
+
+    async def update_mp3_file_status(self):
+        async with aiohttp.ClientSession() as session:
+            # total_tasks = sum(1 for word in self.words if word.phonetic and word.phonetic.sound_file)
+            # with tqdm(total=total_tasks, desc="Checking MP3 files") as progress_bar:
+            tasks = []
+            for word in self.words:
+                if word.phonetic and word.phonetic.sound_file:
+                    tasks.append(word.phonetic.check_mp3_file(session))
+            await tqdm_asyncio.gather(*tasks)
+#                await asyncio.gather(*tasks)
+
     def output_to_jsonl(self, file_path: str = "data/folkets_lexicon_v2.jsonl"):
         with jsonlines.open(file_path, mode="w") as writer:
             for word in self.words:
                 writer.write(word.get_output_dict)
 
-    def output_to_individual_json_files(self, directory_path: str = "data/v2"):
-        # Remove existing directory if it exists
-        shutil.rmtree(directory_path, ignore_errors=True)
-        # Create the directory if it doesn't exist
-        os.makedirs(directory_path, exist_ok=False)
-
-        # Create subdirectories for words, idioms, and examples
-        word_dir = os.path.join(directory_path, "word")
-        idiom_dir = os.path.join(directory_path, "idiom")
-        example_dir = os.path.join(directory_path, "example")
-        os.makedirs(word_dir, exist_ok=False)
-        os.makedirs(idiom_dir, exist_ok=False)
-        os.makedirs(example_dir, exist_ok=False)
-
-        # Iterate over each Word and write it to a separate JSON file
-        for word in self.words:
-            # Save word to JSON file
-            word_file_path = os.path.join(word_dir, f"{word.id_}.json")
-            with open(word_file_path, mode="w", encoding="utf-8") as file:
-                json.dump(word.get_output_dict, file, ensure_ascii=False)
-
-            # Save idioms to JSON files
-            for idiom in word.idioms:
-                idiom_file_path = os.path.join(idiom_dir, f"{idiom.id_}.json")
-                with open(idiom_file_path, mode="w", encoding="utf-8") as file:
-                    json.dump(idiom.dict(), file, ensure_ascii=False)
-
-            # Save examples to JSON files
-            for example in word.examples:
-                example_file_path = os.path.join(example_dir, f"{example.id_}.json")
-                with open(example_file_path, mode="w", encoding="utf-8") as file:
-                    json.dump(example.dict(), file, ensure_ascii=False)
+    # def output_to_individual_json_files(self, directory_path: str = "data/v2"):
+    #     # Remove existing directory if it exists
+    #     shutil.rmtree(directory_path, ignore_errors=True)
+    #     # Create the directory if it doesn't exist
+    #     os.makedirs(directory_path, exist_ok=False)
+    #
+    #     # Create subdirectories for words, idioms, and examples
+    #     word_dir = os.path.join(directory_path, "word")
+    #     idiom_dir = os.path.join(directory_path, "idiom")
+    #     example_dir = os.path.join(directory_path, "example")
+    #     os.makedirs(word_dir, exist_ok=False)
+    #     os.makedirs(idiom_dir, exist_ok=False)
+    #     os.makedirs(example_dir, exist_ok=False)
+    #
+    #     # Iterate over each Word and write it to a separate JSON file
+    #     for word in self.words:
+    #         # Save word to JSON file
+    #         word_file_path = os.path.join(word_dir, f"{word.id_}.json")
+    #         with open(word_file_path, mode="w", encoding="utf-8") as file:
+    #             json.dump(word.get_output_dict, file, ensure_ascii=False)
+    #
+    #         # Save idioms to JSON files
+    #         for idiom in word.idioms:
+    #             idiom_file_path = os.path.join(idiom_dir, f"{idiom.id_}.json")
+    #             with open(idiom_file_path, mode="w", encoding="utf-8") as file:
+    #                 json.dump(idiom.dict(), file, ensure_ascii=False)
+    #
+    #         # Save examples to JSON files
+    #         for example in word.examples:
+    #             example_file_path = os.path.join(example_dir, f"{example.id_}.json")
+    #             with open(example_file_path, mode="w", encoding="utf-8") as file:
+    #                 json.dump(example.dict(), file, ensure_ascii=False)
 
 
 wc = WordsContainer.from_file("data/folkets_sv_en_public.xml")
+asyncio.run(wc.update_mp3_file_status())  # Await the coroutine here
 wc.output_to_jsonl()
-wc.output_to_individual_json_files()
+#wc.output_to_individual_json_files()
+# processor = LexiconProcessor()
+# processor.output_to_individual_json_files()
 
 words_count = wc.count_words()
 idioms_count = wc.count_idioms()
@@ -324,3 +374,5 @@ print(
 )
 print("Number of idioms:", idioms_count)
 print("Number of examples:", examples)
+print("Number of mp3 file urls:", wc.count_mp3_file())
+print("Number of mp3 files found:", wc.count_mp3_file_found())
