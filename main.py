@@ -70,8 +70,21 @@ pos_mapping = {
 class Translatable(BaseModel):
     id_: str  # Add an id attribute
     value: str
+    explanation: str = ""
     translation: str = ""  # Default to empty string for translation
+    translation_explanation: str = ""
     word_id: str  # Link to the parent Word's ID
+
+    @staticmethod
+    def split_idiom_value_and_explanation(value):
+        """Split idiom value and explanation based on parentheses"""
+        if '(' in value and ')' in value:
+            value, explanation = value.split('(', 1)
+            # Remove quotes
+            explanation = explanation.rstrip(')').replace('""', '"')
+        else:
+            explanation = ""
+        return value.strip(), explanation.strip()
 
     @classmethod
     def from_soup(cls, soup, word_id):
@@ -81,12 +94,26 @@ class Translatable(BaseModel):
         translation = soup.translation.get("value", "") if soup.translation else ""
         # Decode HTML entities
         translation = html.unescape(translation).replace('""', '"')
-        return cls(
+
+        # Extract explanation from value for idioms
+        explanation = ""
+        translation_explanation = ""
+        if cls == Idiom:
+            value, explanation = cls.split_idiom_value_and_explanation(value)
+            translation, translation_explanation = cls.split_idiom_value_and_explanation(translation)
+
+        instance = cls(
             id_=str(uuid.uuid4())[:6],
             value=value,
+            explanation=explanation,
             translation=translation,
+            translation_explanation=translation_explanation,
             word_id=word_id,
-        )  # Assign a unique ID and link to word_id
+        )
+        if instance.translation_explanation != "":
+            print(instance)
+            exit()
+        return instance
 
 
 class Idiom(Translatable):
@@ -224,11 +251,13 @@ class Word(BaseModel):
         dictionary["lexical_category_qid"] = self.get_lexical_category
         dictionary["word_with_middle_dots"] = self.word_with_middle_dots
         dictionary["word_without_vertical_line"] = self.word_without_vertical_line
-        # if self.value == "driva" and self.get_lexical_category == "Q24905":
-        #     pprint(dictionary)
-        #     exit()
-        return dictionary
 
+        # Handle explanation for idioms in the output
+        for idiom in dictionary.get("idioms", []):
+            if idiom.get("explanation"):
+                idiom["explanation"] = idiom["explanation"]
+
+        return dictionary
 
 class WordsContainer(BaseModel):
     words: List[Word]
@@ -345,7 +374,7 @@ class WordsContainer(BaseModel):
 
 
 wc = WordsContainer.from_file("data/folkets_sv_en_public.xml")
-asyncio.run(wc.update_mp3_file_status())  # Await the coroutine here
+# asyncio.run(wc.update_mp3_file_status())  # Await the coroutine here
 wc.output_to_jsonl()
 #wc.output_to_individual_json_files()
 # processor = LexiconProcessor()
